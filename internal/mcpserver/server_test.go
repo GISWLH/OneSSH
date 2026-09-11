@@ -7,13 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"onessh/internal/cryptox"
-	"onessh/internal/events"
 	"onessh/internal/hostmanager"
-	"onessh/internal/memoryx"
-	"onessh/internal/sshpool"
-	"onessh/internal/store"
 )
 
 // 工具描述和参数说明是 Agent 选型的唯一依据：少一句「什么时候该用我」，模型就会退回 exec 硬拼命令。
@@ -22,32 +16,8 @@ import (
 func TestToolCatalogGivesAgentsEnoughContext(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	dir := t.TempDir()
-	st, err := store.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	box, err := cryptox.New(make([]byte, 32))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pool := sshpool.New(st, box)
-	defer pool.Close()
-	server := New(st, pool, events.New(), hostmanager.New(st, box, pool), memoryx.New(st, memoryx.EmbeddingConfig{}), dir, "", 0, true, true)
-	defer server.Close()
-
-	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	serverSession, err := server.MCP.Connect(ctx, serverTransport, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer serverSession.Close()
-	session, err := mcp.NewClient(&mcp.Implementation{Name: "catalog-test", Version: "1"}, nil).Connect(ctx, clientTransport, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer session.Close()
+	server := newTestServer(t, Options{SearchHelper: true, MCPApps: true})
+	session := connectClient(t, ctx, server)
 
 	tools, err := session.ListTools(ctx, nil)
 	if err != nil {

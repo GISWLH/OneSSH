@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"onessh/internal/toolgroups"
 )
 
 // MCP Apps（modelcontextprotocol/ext-apps）允许服务器为工具结果附带一份 HTML 视图：
@@ -106,13 +107,18 @@ type appCatalog struct {
 	order   []string
 }
 
-func newAppCatalog(enabled bool) (*appCatalog, error) {
+// newAppCatalog 只为实际注册的工具组装卡片：被 ONESSH_DISABLED_TOOLS 关掉的工具不存在，
+// 再发布它的卡片资源只会让宿主的 resources/list 指向一个调用不到的工具。
+func newAppCatalog(enabled bool, disabled toolgroups.Disabled) (*appCatalog, error) {
 	catalog := &appCatalog{enabled: enabled, entries: map[string]appEntry{}}
 	if !enabled {
 		return catalog, nil
 	}
 	catalog.uiMeta = appResourceMeta()
 	for _, binding := range appBindings {
+		if disabled.HidesTool(binding.Tool) {
+			continue
+		}
 		html, err := assembleAppHTML(binding)
 		if err != nil {
 			return nil, err

@@ -22,6 +22,7 @@ import (
 	"onessh/internal/searchx"
 	"onessh/internal/sshpool"
 	"onessh/internal/store"
+	"onessh/internal/toolgroups"
 )
 
 type Server struct {
@@ -38,49 +39,69 @@ type Server struct {
 	apps        *appCatalog
 }
 
-const serverInstructions = `OneSSH 是受主机权限控制的 SSH 运维网关：通过它连接远程主机、执行命令、读写文件、跑后台任务、看资源指标，并在跨会话的记忆库里积累运维知识。
+// Options 收拢 New 的可调参数：按组关闭工具属于实例级配置，再往位置参数上堆会让调用点
+// 变成一串没有名字的字面量。
+type Options struct {
+	DataDir string
+	// PublicURL 必须是已规范化的来源地址（无尾斜杠、无路径），由 oauthserver.New 校验后传入；
+	// 这里不再做第二次归一，避免同一份规则出现两套实现。
+	PublicURL    string
+	PollInterval time.Duration
+	SearchHelper bool
+	// MCPApps 控制是否发布 MCP Apps 卡片资源。
+	MCPApps bool
+	// DisabledTools 列出不对外暴露的工具组，同时决定服务器提示词里能提到哪些工具。
+	DisabledTools toolgroups.Disabled
+}
 
-【主机与权限】所有工具的 host 参数只接受 hosts_list 返回的名称，任务开始前先调用一次 hosts_list 确认目标主机、标签与在线状态；可按 tags 区分环境或用途后再选主机。名称不在授权列表时会返回 host not authorized。hosts_manage_list、host_create、host_update、host_test、host_reset_fingerprint、host_delete 属于全局配置管理，需要独立的 manage_hosts 权限，且该权限不会扩大命令与文件工具的可访问主机范围。主机可配置 jump_host 跳板，连接自动经跳板隧道建立，对命令与文件工具透明。
-
-【优先用专用工具，不要拿 exec 兜底】搜内容用 grep，找路径用 find，看目录用 file_list，读文件用 file_read，整文件覆盖用 file_write，局部改写用 file_edit，跨主机复制用 file_transfer，看 CPU/内存/磁盘用 host_status，看图片用 image_view。这些工具返回结构化结果，并已处理引号转义、超时、大小上限与输出截断；用 exec 拼 cat/sed/scp/grep 更容易踩到引号与转义问题，只有在没有对应专用工具时才用 exec。
-
-【执行】exec 是同步调用，timeout_s 上限 600 秒，适合秒级到分钟级的命令。预计更久、或希望连接中断后继续运行的，用 job_start 起后台任务，再用 job_status 判断是否结束、job_logs 增量看日志、必要时 job_kill 终止。exec 的工作目录按 host+session 持久保存，cd 之后下一次 exec 仍在该目录；环境变量用 session_env 设置。互不相干的并行工作请用不同 session 标签，避免彼此改动 cwd。输出被截断时结果里会带 artifact_id，用 output_read 分页或正则过滤，不要重跑命令再加 head/tail。同一条命令要在多台主机上跑用 exec_many。
-
-【修改远程状态要谨慎】删除、覆盖、重启服务、改防火墙这类破坏性操作前，先读取现状确认目标正确。file_edit 传上一次 file_read 返回的 expected_sha256 开启乐观锁，避免覆盖他人的并发修改；file_write 是整文件覆盖，改配置优先 file_edit。命令里不要内联明文密码或私钥；所有工具调用都会写入网关审计日志。
-
-【记忆】执行涉及某台主机的任务前，如果历史部署路径、服务拓扑、故障经验或运维约束可能相关，先调用 memory_recall，并用 host 指定目标主机、用 query 描述当前具体问题；召回内容可能过期，不得替代现场文件读取、命令输出或监控数据的验证。memory_recall 没有结果时继续正常调查，不得把“没有记忆”等同于事实不存在。
-
-确认一个以后仍有价值的事实、解决方案或踩坑记录后，调用 memory_remember 写成简洁、自包含、便于检索的结论，并存入对应主机 bank；只有确实跨主机通用的规则才写入全局 bank。不得保存密码、私钥、访问令牌或其他秘密，不保存瞬时命令输出、未验证猜测或低价值重复信息。推断内容使用 veracity=inferred，工具直接观测的事实使用 veracity=tool，并按长期价值设置 importance。
-
-事实发生变化时优先调用 memory_update 修正原记录；确定记录已经错误、失效或不应保留时才调用 memory_forget。memory_list 与 memory_stats 用于核对某个 bank 的内容与规模。memory_sleep 是按 bank 执行的维护工具，只在需要整理记忆时使用，不必在每次任务中调用。`
-
-// New 的 publicURL 必须是已规范化的来源地址（无尾斜杠、无路径），由 oauthserver.New 校验后传入；
-// 这里不再做第二次归一，避免同一份规则出现两套实现。
-func New(st *store.Store, pool *sshpool.Pool, bus *events.Bus, hosts *hostmanager.Manager, memory *memoryx.Engine, dataDir, publicURL string, pollInterval time.Duration, searchHelper, mcpApps bool) *Server {
-	s := &Server{Store: st, Pool: pool, Events: bus, HostManager: hosts, Memory: memory, Exec: execx.New(dataDir)}
+func New(st *store.Store, pool *sshpool.Pool, bus *events.Bus, hosts *hostmanager.Manager, memory *memoryx.Engine, opts Options) *Server {
+	s := &Server{Store: st, Pool: pool, Events: bus, HostManager: hosts, Memory: memory, Exec: execx.New(opts.DataDir)}
 	if err := st.RecoverInterruptedCommandRuns(context.Background(), time.Now().UnixMilli()); err != nil {
 		log.Printf("恢复中断的命令执行记录失败: %v", err)
 	}
 	s.Jobs = jobs.New(st, pool, s.Exec, bus)
 	s.Files = files.New(pool, s.Exec)
-	s.Monitor = monitor.New(st, pool, s.Exec, pollInterval)
-	s.MCP = newProtocolServer(publicURL)
+	s.Monitor = monitor.New(st, pool, s.Exec, opts.PollInterval)
+	s.MCP = newProtocolServer(opts.PublicURL, serverInstructions(opts.DisabledTools))
 	// 卡片资产在编译期内嵌，组装失败只可能是资产本身有问题，属于必须立刻暴露的构建错误。
-	apps, err := newAppCatalog(mcpApps)
+	apps, err := newAppCatalog(opts.MCPApps, opts.DisabledTools)
 	if err != nil {
 		log.Fatalf("组装 MCP Apps 卡片失败: %v", err)
 	}
 	s.apps = apps
-	s.registerHosts()
-	s.registerExec(s.Exec)
-	s.registerJobs(s.Jobs)
-	s.registerFiles(s.Files)
-	s.registerSearch(searchx.New(pool, s.Files.Clients, searchHelper))
-	s.registerMemory()
-	s.registerImage(s.Files)
-	s.registerMonitor(s.Monitor)
-	s.registerFanout()
+	// 监控采集、文件与任务管理器始终构建：WebUI 的 REST 接口依赖它们，关闭的只是 MCP 暴露面。
+	on := opts.DisabledTools.Enabled
+	if on(toolgroups.Hosts) {
+		s.registerHosts()
+	}
+	if on(toolgroups.Exec) {
+		s.registerExec(s.Exec)
+	}
+	if on(toolgroups.Jobs) {
+		s.registerJobs(s.Jobs)
+	}
+	if on(toolgroups.Files) {
+		s.registerFiles(s.Files)
+	}
+	if on(toolgroups.Search) {
+		s.registerSearch(searchx.New(pool, s.Files.Clients, opts.SearchHelper))
+	}
+	if on(toolgroups.Memory) {
+		s.registerMemory()
+	}
+	if on(toolgroups.Image) {
+		s.registerImage(s.Files)
+	}
+	if on(toolgroups.Monitor) {
+		s.registerMonitor(s.Monitor)
+	}
+	if on(toolgroups.Fanout) {
+		s.registerFanout()
+	}
 	s.apps.registerResources(s.MCP)
+	if names := opts.DisabledTools.Names(); len(names) > 0 {
+		log.Printf("已禁用 MCP 工具组: %s", strings.Join(names, ","))
+	}
 	s.Monitor.Start(context.Background())
 	return s
 }
@@ -106,9 +127,10 @@ func serverInfo(publicURL string) *mcp.Implementation {
 	return info
 }
 
-func newProtocolServer(publicURL string) *mcp.Server {
-	return mcp.NewServer(serverInfo(publicURL), &mcp.ServerOptions{Instructions: serverInstructions})
+func newProtocolServer(publicURL, instructions string) *mcp.Server {
+	return mcp.NewServer(serverInfo(publicURL), &mcp.ServerOptions{Instructions: instructions})
 }
+
 func (s *Server) Close() {
 	s.Monitor.Stop()
 	s.Files.Clients.Close()
