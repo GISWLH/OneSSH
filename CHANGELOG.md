@@ -4,6 +4,8 @@
 
 ## [未发布]
 
+## [0.1.17] - 2026-09-11
+
 ### 新增
 
 - 新增 `ONESSH_DISABLED_TOOLS`：按工具组（`hosts`、`exec`、`fanout`、`jobs`、`files`、`search`、`monitor`、`image`、`memory`）关闭 MCP 暴露面，常用于 Agent 自带记忆系统时设置 `memory`。被关闭的组不注册为工具，服务器 `instructions` 中对应段落与该组的 MCP Apps 卡片资源同步移除；未知组名在启动时直接报错。WebUI 与 REST 管理接口不受影响（[#20](https://github.com/Lynricsy/OneSSH/issues/20)）。
