@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"onessh/internal/toolgroups"
 )
 
 type Config struct {
@@ -22,6 +24,7 @@ type Config struct {
 	EmbeddingModel  string
 	SearchHelper    bool
 	MCPApps         bool
+	DisabledTools   toolgroups.Disabled
 }
 
 func Load() (Config, error) {
@@ -56,6 +59,11 @@ func Load() (Config, error) {
 	default:
 		return cfg, errors.New("ONESSH_MCP_APPS 只接受 on 或 off")
 	}
+	disabled, err := toolgroups.Parse(os.Getenv("ONESSH_DISABLED_TOOLS"))
+	if err != nil {
+		return cfg, fmt.Errorf("ONESSH_DISABLED_TOOLS %w", err)
+	}
+	cfg.DisabledTools = disabled
 	seconds, err := strconv.Atoi(envDefault("ONESSH_POLL_INTERVAL", "60"))
 	if err != nil || seconds < 0 {
 		return cfg, fmt.Errorf("ONESSH_POLL_INTERVAL 必须是非负整数")

@@ -8,12 +8,6 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"onessh/internal/cryptox"
-	"onessh/internal/events"
-	"onessh/internal/hostmanager"
-	"onessh/internal/memoryx"
-	"onessh/internal/sshpool"
-	"onessh/internal/store"
 )
 
 // newAppTestSession 起一个真实的 in-memory MCP 会话，从客户端角度观察工具与资源，
@@ -22,33 +16,8 @@ func newAppTestSession(t *testing.T, publicURL string, mcpApps bool) *mcp.Client
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)
-	dir := t.TempDir()
-	st, err := store.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
-	box, err := cryptox.New(make([]byte, 32))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pool := sshpool.New(st, box)
-	t.Cleanup(pool.Close)
-	server := New(st, pool, events.New(), hostmanager.New(st, box, pool), memoryx.New(st, memoryx.EmbeddingConfig{}), dir, publicURL, 0, true, mcpApps)
-	t.Cleanup(server.Close)
-
-	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	serverSession, err := server.MCP.Connect(ctx, serverTransport, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { serverSession.Close() })
-	session, err := mcp.NewClient(&mcp.Implementation{Name: "apps-test", Version: "1"}, nil).Connect(ctx, clientTransport, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { session.Close() })
-	return session
+	server := newTestServer(t, Options{PublicURL: publicURL, SearchHelper: true, MCPApps: mcpApps})
+	return connectClient(t, ctx, server)
 }
 
 func listAppTools(t *testing.T, session *mcp.ClientSession) map[string]*mcp.Tool {
@@ -229,7 +198,7 @@ func TestAppResourcesAreSelfContained(t *testing.T) {
 
 // 每张卡片只带自己那一组视图：同组工具要能互相导航，跨组代码则不该占用体积。
 func TestAppResourceCarriesOnlyItsOwnGroupViews(t *testing.T) {
-	catalog, err := newAppCatalog(true)
+	catalog, err := newAppCatalog(true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,11 +247,11 @@ func TestAppsDisabledRemovesResourcesAndMeta(t *testing.T) {
 }
 
 func TestAppResourceURIIsStableForSameContent(t *testing.T) {
-	first, err := newAppCatalog(true)
+	first, err := newAppCatalog(true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := newAppCatalog(true)
+	second, err := newAppCatalog(true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

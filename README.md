@@ -220,21 +220,27 @@ OneSSH 为**全部 32 个工具**各提供一张 [MCP Apps](https://modelcontext
 
 卡片内的交互**只做只读导航**：翻页、进入子目录、预览文件、刷新任务与指标、复制、全屏。执行命令、写文件、删除主机、修改记忆等有副作用的工具在 `_meta.ui.visibility` 中不带 `app`，卡片自身也有白名单拦截，不会从界面上被触发。
 
-设置 `ONESSH_MCP_APPS=off` 可以完全关闭卡片：工具的 `_meta` 与全部 `ui://` 资源都不再发布，工具本身不受影响。
+设置 `ONESSH_MCP_APPS=off` 可以完全关闭卡片：工具的 `_meta` 与全部 `ui://` 资源都不再发布，工具本身不受影响。被 `ONESSH_DISABLED_TOOLS` 关掉的工具组同样不再发布对应卡片——卡片按工具名发布，留着只会指向一个调用不到的工具。
 
 ### 工具清单
 
-| 类别 | 工具 |
-|---|---|
-| 主机与执行 | `hosts_list` · `exec` · `session_env` · `exec_many` · `output_read` |
-| 主机管理 | `hosts_manage_list` · `host_create` · `host_update` · `host_test` · `host_reset_fingerprint` · `host_delete` |
-| 后台任务 | `job_start` · `job_list` · `job_status` · `job_logs` · `job_kill` |
-| 文件 | `file_read` · `file_write` · `file_edit` · `file_list` · `file_transfer` |
-| 搜索 | `grep` · `find` |
-| 记忆 | `memory_remember` · `memory_recall` · `memory_list` · `memory_update` · `memory_forget` · `memory_stats` · `memory_sleep` |
-| 资源 | `image_view` · `host_status` |
+表中的「工具组」同时是 `ONESSH_DISABLED_TOOLS` 的取值：列进去的组既不出现在 `tools/list`，也不出现在服务器 `instructions` 里。
+
+| 类别 | 工具组 | 工具 |
+|---|---|---|
+| 主机 | `hosts` | `hosts_list` · `hosts_manage_list` · `host_create` · `host_update` · `host_test` · `host_reset_fingerprint` · `host_delete` |
+| 执行 | `exec` | `exec` · `session_env` · `output_read` |
+| 批量执行 | `fanout` | `exec_many` |
+| 后台任务 | `jobs` | `job_start` · `job_list` · `job_status` · `job_logs` · `job_kill` |
+| 文件 | `files` | `file_read` · `file_write` · `file_edit` · `file_list` · `file_transfer` |
+| 搜索 | `search` | `grep` · `find` |
+| 监控 | `monitor` | `host_status` |
+| 多媒体 | `image` | `image_view` |
+| 记忆 | `memory` | `memory_remember` · `memory_recall` · `memory_list` · `memory_update` · `memory_forget` · `memory_stats` · `memory_sleep` |
 
 常用编码工具是完整对齐的：`file_read`、`file_write`、`file_edit`、`exec`、`grep`、`find`、`file_list` 分别对应 read、write、edit、bash、grep、find、ls。
+
+Agent 自带记忆系统时，用 `ONESSH_DISABLED_TOOLS=memory` 让网关只做 SSH 运维；关闭仅影响 MCP 暴露面，WebUI 的记忆页与 `/api/v1/memories` 仍可查看与清理既有记忆。
 
 `file_edit` 支持 `expected_sha256` 乐观锁，冲突时应重新读取。大输出会返回 `artifact_id`，再用 `output_read` 分段读取或正则过滤。
 主机配置支持可选的 `jump_host`（REST/MCP 输入使用跳板主机名，列表输出仍以稳定 ID 关联）。连接会复用连接池中的跳板并通过 SSH TCP 隧道到达目标，对命令、文件、任务、终端和监控工具透明；最多串联 5 级且禁止成环。被其他主机依赖的跳板不能直接删除，需先把依赖者改回直连或切换到其他跳板。
@@ -262,7 +268,7 @@ WebUI 的「活动」页会为每次 `exec`、`job_start`，以及 `exec_many` �
 
 工具选得对不对，取决于服务器把话说清楚了没有。OneSSH 在三处提供说明，都会随 `initialize` 和 `tools/list` 一次性交给客户端：
 
-- **服务器 instructions**：网关整体工作协议——`hosts_list` 是所有 `host` 参数的唯一来源、`manage_hosts` 是独立权限、优先用专用工具而不是拿 `exec` 拼命令、长任务走 `job_start`、截断输出走 `output_read`、破坏性操作前先确认现状，以及记忆的读写与安全红线。
+- **服务器 instructions**：网关整体工作协议——`hosts_list` 是所有 `host` 参数的唯一来源、`manage_hosts` 是独立权限、优先用专用工具而不是拿 `exec` 拼命令、长任务走 `job_start`、截断输出走 `output_read`、破坏性操作前先确认现状，以及记忆的读写与安全红线。说明按工具组拼装：`ONESSH_DISABLED_TOOLS` 关掉的组，其段落一并消失，避免提示词指向不存在的工具。
 - **工具 `description` 与 `title`**：每个工具写清适用场景、与相邻工具的取舍、默认值和硬上限、失败时该怎么办。
 - **参数 `description` 与 `annotations`**：每个入参都有说明，每个工具都标注 `readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint`，客户端据此决定是否需要用户确认。
 
@@ -288,6 +294,7 @@ WebUI 的「活动」页会为每次 `exec`、`job_start`，以及 `exec_many` �
 | `ONESSH_POLL_INTERVAL` | | `60` | 监控轮询秒数，设为 `0` 关闭；单轮最多并发采样 5 台，上一轮未结束时跳过新一轮 |
 | `ONESSH_MCP_APPS` | | `on` | `on` 为全部工具发布 MCP Apps 交互卡片资源与 `_meta.ui`；`off` 完全关闭卡片 |
 | `ONESSH_SEARCH_HELPER` | | `auto` | `auto` 在 Linux amd64/arm64 上启用临时搜索 helper；`off` 强制使用原生工具或纯 SFTP |
+| `ONESSH_DISABLED_TOOLS` | | — | 逗号分隔的工具组名（见工具清单），列出的组不注册为 MCP 工具，服务器 `instructions` 里的对应说明同时移除；未知组名启动即报错 |
 | `ONESSH_EMBEDDING_API_URL` | | — | OpenAI 兼容 API 根地址，如 `https://api.example.com/v1`；需同时设置模型才启用 |
 | `ONESSH_EMBEDDING_API_KEY` | | — | embedding 服务 Bearer 密钥；服务不需要鉴权时可留空 |
 | `ONESSH_EMBEDDING_MODEL` | | — | embedding 模型名；换模型后旧向量自然不参与召回 |

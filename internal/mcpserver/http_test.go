@@ -37,7 +37,7 @@ func TestAuditCapturesAuthenticatedTokenIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	server := &Server{MCP: newProtocolServer(""), Store: st, Events: events.New()}
+	server := &Server{MCP: newProtocolServer("", serverInstructions(nil)), Store: st, Events: events.New()}
 	register(server, &mcp.Tool{Name: "audit_test"}, func(context.Context, *mcp.CallToolRequest, Empty) (*mcp.CallToolResult, Empty, error) {
 		return nil, Empty{}, nil
 	})
@@ -90,7 +90,7 @@ func TestToolCallEventIncludesCommandSummary(t *testing.T) {
 	bus := events.New()
 	ch, unsub := bus.Subscribe()
 	defer unsub()
-	server := &Server{MCP: newProtocolServer(""), Store: st, Events: bus}
+	server := &Server{MCP: newProtocolServer("", serverInstructions(nil)), Store: st, Events: bus}
 	type cmdIn struct {
 		Host    string `json:"host"`
 		Command string `json:"command"`
@@ -157,7 +157,7 @@ func TestHandlerUsesModernStatelessTransport(t *testing.T) {
 
 	started := make(chan struct{})
 	cancelled := make(chan struct{}, 1)
-	server := &Server{MCP: newProtocolServer("")}
+	server := &Server{MCP: newProtocolServer("", serverInstructions(nil))}
 	mcp.AddTool(server.MCP, &mcp.Tool{Name: "wait"}, func(ctx context.Context, _ *mcp.CallToolRequest, _ Empty) (*mcp.CallToolResult, Empty, error) {
 		close(started)
 		<-ctx.Done()

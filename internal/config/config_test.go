@@ -3,6 +3,8 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"onessh/internal/toolgroups"
 )
 
 func TestLoadReadsOptionalEmbeddingConfig(t *testing.T) {
@@ -87,4 +89,29 @@ func TestLoadMCPAppsSwitch(t *testing.T) {
 			t.Errorf("ONESSH_MCP_APPS=%q 得到 %v，期望 %v", tc.value, cfg.MCPApps, tc.want)
 		}
 	}
+}
+
+func TestLoadParsesDisabledToolGroups(t *testing.T) {
+	t.Setenv("ONESSH_MASTER_KEY", strings.Repeat("01", 32))
+	t.Setenv("ONESSH_ADMIN_PASSWORD", "test-password")
+	t.Run("groups", func(t *testing.T) {
+		t.Setenv("ONESSH_DISABLED_TOOLS", "memory, image")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.DisabledTools.Enabled(toolgroups.Memory) || cfg.DisabledTools.Enabled(toolgroups.Image) {
+			t.Fatalf("工具组未禁用: %#v", cfg.DisabledTools)
+		}
+		if !cfg.DisabledTools.Enabled(toolgroups.Exec) {
+			t.Fatal("未列出的工具组被误禁用")
+		}
+	})
+	t.Run("invalid", func(t *testing.T) {
+		t.Setenv("ONESSH_DISABLED_TOOLS", "memories")
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "ONESSH_DISABLED_TOOLS 未知工具组") {
+			t.Fatalf("非法值错误 = %v", err)
+		}
+	})
 }

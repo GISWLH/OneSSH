@@ -4,6 +4,10 @@
 
 ## [未发布]
 
+### 新增
+
+- 新增 `ONESSH_DISABLED_TOOLS`：按工具组（`hosts`、`exec`、`fanout`、`jobs`、`files`、`search`、`monitor`、`image`、`memory`）关闭 MCP 暴露面，常用于 Agent 自带记忆系统时设置 `memory`。被关闭的组不注册为工具，服务器 `instructions` 中对应段落与该组的 MCP Apps 卡片资源同步移除；未知组名在启动时直接报错。WebUI 与 REST 管理接口不受影响（[#20](https://github.com/Lynricsy/OneSSH/issues/20)）。
+
 ## [0.1.16] - 2026-09-03
 
 ### 修复
@@ -26,7 +30,6 @@
   - 新增 `ONESSH_MCP_APPS` 开关（默认 `on`），`off` 时不发布任何卡片资源与 `_meta`。
   - 新增预览画廊 `internal/mcpserver/apps/preview/`，用静态服务器即可离线验收全部卡片。
   - 新增卡片运行时一致性测试并接入 CI：在 Node 里执行 `runtime.js`，覆盖 `ui/*` 协议报文、只读回调白名单与 32 张卡片对真实样例的渲染。
-
 ## [0.1.14] - 2026-08-27
 
 ### 修复
