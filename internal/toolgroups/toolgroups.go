@@ -167,3 +167,13 @@ func Union(parts ...Disabled) Disabled {
 
 // GroupNames 返回 All 中的全部分组名，供管理 API / 授权页展示可选值。
 func GroupNames() []string { return names() }
+
+// AllDisabled 返回禁用全部分组的集合。令牌 denylist 解析失败时用它做 fail-closed 回退，
+// 避免静默忽略后放开本应关闭的工具。
+func AllDisabled() Disabled {
+	out := make(Disabled, len(All))
+	for _, def := range All {
+		out[def.Group] = true
+	}
+	return out
+}

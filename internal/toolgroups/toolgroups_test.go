@@ -64,3 +64,15 @@ func TestParseListAndUnion(t *testing.T) {
 		t.Fatalf("NormalizeList = %v", names)
 	}
 }
+
+func TestAllDisabled(t *testing.T) {
+	disabled := AllDisabled()
+	if len(disabled) != len(All) {
+		t.Fatalf("AllDisabled size = %d, want %d", len(disabled), len(All))
+	}
+	for _, def := range All {
+		if disabled.Enabled(def.Group) {
+			t.Fatalf("分组 %s 未被禁用", def.Group)
+		}
+	}
+}

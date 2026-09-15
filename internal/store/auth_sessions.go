@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"onessh/internal/toolgroups"
 )
 
 func TokenHash(token string) string {
@@ -279,19 +281,19 @@ func (s *Store) SaveSession(ctx context.Context, x Session) error {
 }
 
 func encodeDisabledTools(names []string) (string, []string, error) {
-	if names == nil {
-		names = []string{}
-	}
-	// 调用方已用 toolgroups.NormalizeList 时仍再走一遍 JSON，保持列里永远是合法数组。
-	raw, err := json.Marshal(names)
+	// 持久化边界强制校验：未知分组名直接拒绝，API / OAuth 层的 NormalizeList 只是 UX。
+	normalized, err := toolgroups.NormalizeList(names)
 	if err != nil {
 		return "", nil, err
 	}
-	out := append([]string(nil), names...)
-	if out == nil {
-		out = []string{}
+	if normalized == nil {
+		normalized = []string{}
 	}
-	return string(raw), out, nil
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		return "", nil, err
+	}
+	return string(raw), normalized, nil
 }
 
 func decodeDisabledTools(raw string) ([]string, error) {

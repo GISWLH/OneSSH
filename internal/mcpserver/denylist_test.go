@@ -141,3 +141,178 @@ func toolText(result *mcp.CallToolResult) string {
 	}
 	return strings.Join(parts, "\n")
 }
+
+func TestTokenDenylistParseFailureFailClosed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	server := newTestServer(t, Options{MCPApps: true, SearchHelper: true})
+	st := server.Store
+	token, err := st.CreateToken(ctx, store.TokenCreate{
+		Name: "corrupt-agent", Hash: store.TokenHash("secret-corrupt"), AllHosts: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 绕过持久化校验，模拟库里已有损坏的 denylist。
+	if _, err = st.DB.ExecContext(ctx, `UPDATE tokens SET disabled_tools_json=? WHERE id=?`, `["not-a-real-group"]`, token.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	resolve := func(*http.Request) (string, string) {
+		return "https://onessh.example/mcp", "https://onessh.example/.well-known/oauth-protected-resource/mcp"
+	}
+	httpServer := httptest.NewServer(Handler(st, server, resolve))
+	t.Cleanup(httpServer.Close)
+
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "corrupt-test", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint:   httpServer.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: "secret-corrupt"}},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { session.Close() })
+
+	if names := listToolNames(t, ctx, session); len(names) != 0 {
+		t.Fatalf("解析失败应 fail-closed 隐藏全部工具，实际 %v", names)
+	}
+	denied, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "hosts_list"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if denied == nil || !denied.IsError {
+		t.Fatalf("解析失败后调用应拒绝，实际 %#v", denied)
+	}
+}
+
+func TestTokenDenylistCrossTokenIsolation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	server := newTestServer(t, Options{MCPApps: true, SearchHelper: true})
+	st := server.Store
+	if _, err := st.CreateToken(ctx, store.TokenCreate{
+		Name: "full", Hash: store.TokenHash("secret-full"), AllHosts: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateToken(ctx, store.TokenCreate{
+		Name: "restricted", Hash: store.TokenHash("secret-restricted"), AllHosts: true,
+		DisabledTools: []string{"memory"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resolve := func(*http.Request) (string, string) {
+		return "https://onessh.example/mcp", "https://onessh.example/.well-known/oauth-protected-resource/mcp"
+	}
+	httpServer := httptest.NewServer(Handler(st, server, resolve))
+	t.Cleanup(httpServer.Close)
+
+	connect := func(token string) *mcp.ClientSession {
+		t.Helper()
+		session, err := mcp.NewClient(&mcp.Implementation{Name: "iso", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{
+			Endpoint:   httpServer.URL,
+			HTTPClient: &http.Client{Transport: bearerTransport{token: token}},
+		}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { session.Close() })
+		return session
+	}
+
+	fullNames := map[string]bool{}
+	for _, name := range listToolNames(t, ctx, connect("secret-full")) {
+		fullNames[name] = true
+	}
+	if !fullNames["memory_stats"] {
+		t.Fatal("无 denylist 令牌应看到 memory_stats")
+	}
+
+	for _, name := range listToolNames(t, ctx, connect("secret-restricted")) {
+		if strings.HasPrefix(name, "memory_") {
+			t.Fatalf("受限令牌仍暴露 %s", name)
+		}
+	}
+}
+
+func TestTokenDenylistAuditsResourceReadDenial(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	server := newTestServer(t, Options{MCPApps: true, SearchHelper: true})
+	st := server.Store
+	if _, err := st.CreateToken(ctx, store.TokenCreate{
+		Name: "resource-deny", Hash: store.TokenHash("secret-resource"), AllHosts: true,
+		DisabledTools: []string{"exec"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resolve := func(*http.Request) (string, string) {
+		return "https://onessh.example/mcp", "https://onessh.example/.well-known/oauth-protected-resource/mcp"
+	}
+	httpServer := httptest.NewServer(Handler(st, server, resolve))
+	t.Cleanup(httpServer.Close)
+
+	// 用无 denylist 的令牌拿一张 exec 卡片 URI，再用受限令牌直接读。
+	if _, err := st.CreateToken(ctx, store.TokenCreate{
+		Name: "full-for-uri", Hash: store.TokenHash("secret-uri"), AllHosts: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fullSession, err := mcp.NewClient(&mcp.Implementation{Name: "uri", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint:   httpServer.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: "secret-uri"}},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { fullSession.Close() })
+	resources, err := fullSession.ListResources(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var execURI string
+	for _, resource := range resources.Resources {
+		if strings.Contains(resource.URI, "/exec") || resource.Name == "onessh-app-exec" || strings.HasSuffix(resource.URI, "/exec") || strings.Contains(resource.URI, "ui://onessh/exec") {
+			execURI = resource.URI
+			break
+		}
+	}
+	if execURI == "" {
+		// 兜底：直接用标准卡片 URI。
+		execURI = "ui://onessh/exec"
+	}
+
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "resource-deny", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint:   httpServer.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: "secret-resource"}},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { session.Close() })
+
+	_, err = session.ReadResource(ctx, &mcp.ReadResourceParams{URI: execURI})
+	if err == nil {
+		t.Fatalf("受限令牌读取禁用工具卡片应失败: %s", execURI)
+	}
+
+	audit, err := st.ListAudit(ctx, nil, nil, nil, nil, 0, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, row := range audit {
+		if !row.OK && row.Tool == "exec" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("resources/read 拒绝应写入审计, audit=%#v", audit)
+	}
+}

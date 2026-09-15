@@ -12,10 +12,14 @@ import (
 
 // effectiveDisabled 合并进程级 ONESSH_DISABLED_TOOLS 与当前 Bearer 令牌的 denylist。
 // 令牌只能再收紧，不能重新打开实例已关闭的组。
+// 令牌 denylist 解析失败时 fail-closed：禁用全部 MCP 工具组，绝不静默放开。
 func (s *Server) effectiveDisabled(ctx context.Context) toolgroups.Disabled {
 	tokenDisabled := toolgroups.Disabled(nil)
 	if p, ok := FromContext(ctx); ok {
-		if parsed, err := toolgroups.ParseList(p.Token.DisabledTools); err == nil {
+		parsed, err := toolgroups.ParseList(p.Token.DisabledTools)
+		if err != nil {
+			tokenDisabled = toolgroups.AllDisabled()
+		} else {
 			tokenDisabled = parsed
 		}
 	}
@@ -33,13 +37,20 @@ func (s *Server) installTokenDenylist() {
 			}
 			switch method {
 			case "tools/call":
-				if name := callToolName(req); name != "" && disabled.HidesTool(name) {
+				name := callToolName(req)
+				// 解析不出工具名时 fail-closed：有 denylist 生效就不能放行空名绕过。
+				if name == "" {
+					s.auditDeniedTool(ctx, "(unparseable)")
+					return errorResult("tool not authorized"), nil
+				}
+				if disabled.HidesTool(name) {
 					s.auditDeniedTool(ctx, name)
 					return errorResult("tool not authorized: " + name), nil
 				}
 			case "resources/read":
 				if uri := readResourceURI(req); uri != "" {
 					if tool, ok := s.apps.toolNameForURI(uri); ok && disabled.HidesTool(tool) {
+						s.auditDeniedTool(ctx, tool)
 						return nil, mcp.ResourceNotFoundError(uri)
 					}
 				}
