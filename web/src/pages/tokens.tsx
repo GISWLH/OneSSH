@@ -320,15 +320,26 @@ export function TokensPage() {
                         />
                         <p className="min-w-0 truncate font-medium text-text">{token.name}</p>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`删除令牌 ${token.name}`}
-                        title="删除令牌"
-                        onClick={() => setDeleting(token)}
-                      >
-                        <Trash size={16} />
-                      </Button>
+                      <div className="flex shrink-0 gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`编辑令牌 ${token.name}`}
+                          title="编辑令牌"
+                          onClick={() => openEdit(token)}
+                        >
+                          <PencilSimple size={16} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`删除令牌 ${token.name}`}
+                          title="删除令牌"
+                          onClick={() => setDeleting(token)}
+                        >
+                          <Trash size={16} />
+                        </Button>
+                      </div>
                     </div>
                     {/* 移动端不复刻表格的「标签 + 值」两列：权限和时间本身自解释，去掉标签更安静 */}
                     <div className="mt-2.5">

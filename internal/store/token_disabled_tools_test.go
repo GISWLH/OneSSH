@@ -80,3 +80,26 @@ func TestStoreRejectsUnknownDisabledToolGroups(t *testing.T) {
 		t.Fatalf("CreateOAuthAuthorizationCode 应拒绝未知分组, err=%v", err)
 	}
 }
+
+func TestDecodeDisabledToolsRejectsJSONNull(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	token, err := st.CreateToken(ctx, TokenCreate{
+		Name: "null-deny", Hash: "hash-null", AllHosts: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.DB.ExecContext(ctx, `UPDATE tokens SET disabled_tools_json=? WHERE id=?`, `null`, token.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = st.FindToken(ctx, "hash-null")
+	if err == nil || !strings.Contains(err.Error(), "disabled_tools_json must be a JSON array") {
+		t.Fatalf("null denylist 应 fail-closed 拒绝解码, err=%v", err)
+	}
+}

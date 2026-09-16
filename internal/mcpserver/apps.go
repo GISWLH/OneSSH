@@ -311,6 +311,19 @@ func (c *appCatalog) legacyEntry(uri string) (appEntry, bool) {
 	return entry, true
 }
 
+// hasPermittedApp 报告当前 denylist 下是否仍有可暴露的 MCP App 卡片。
+func (c *appCatalog) hasPermittedApp(disabled toolgroups.Disabled) bool {
+	if c == nil || !c.enabled || len(c.entries) == 0 {
+		return false
+	}
+	for tool := range c.entries {
+		if !disabled.HidesTool(tool) {
+			return true
+		}
+	}
+	return false
+}
+
 // toolNameForURI 从标准或旧版卡片 URI 还原工具名，供令牌级 denylist 过滤 resources。
 func (c *appCatalog) toolNameForURI(uri string) (string, bool) {
 	if c == nil || uri == "" {

@@ -77,6 +77,10 @@ func (s *Server) installTokenDenylist() {
 				if listed, ok := result.(*mcp.ListResourcesResult); ok && listed != nil {
 					listed.Resources = filterResources(listed.Resources, disabled, s.apps)
 				}
+			case "resources/templates/list":
+				if listed, ok := result.(*mcp.ListResourceTemplatesResult); ok && listed != nil {
+					listed.ResourceTemplates = filterTemplates(listed.ResourceTemplates, disabled, s.apps)
+				}
 			}
 			return result, nil
 		}
@@ -135,6 +139,25 @@ func filterResources(resources []*mcp.Resource, disabled toolgroups.Disabled, ap
 			continue
 		}
 		out = append(out, resource)
+	}
+	return out
+}
+
+// filterTemplates 在无任何仍允许的 MCP App 卡片时隐藏 onessh-app-legacy，
+// 避免受限令牌拿到一张只能解析到被拒绝卡片的模板表面。
+func filterTemplates(templates []*mcp.ResourceTemplate, disabled toolgroups.Disabled, apps *appCatalog) []*mcp.ResourceTemplate {
+	if len(templates) == 0 {
+		return templates
+	}
+	out := make([]*mcp.ResourceTemplate, 0, len(templates))
+	for _, template := range templates {
+		if template == nil {
+			continue
+		}
+		if template.Name == "onessh-app-legacy" && !apps.hasPermittedApp(disabled) {
+			continue
+		}
+		out = append(out, template)
 	}
 	return out
 }

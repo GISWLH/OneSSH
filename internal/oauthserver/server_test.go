@@ -73,7 +73,7 @@ func TestOAuthAuthorizationCodeFlowPreservesPermissionsAndAudience(t *testing.T)
 		t.Fatalf("授权信息状态码 %d: %s", infoResponse.Code, infoResponse.Body.String())
 	}
 
-	decisionBody := `{"query":` + quoted("?"+params.Encode()) + `,"decision":"approve","all_hosts":false,"manage_hosts":true,"host_ids":[` + fmtInt(host.ID) + `]}`
+	decisionBody := `{"query":` + quoted("?"+params.Encode()) + `,"decision":"approve","all_hosts":false,"manage_hosts":true,"host_ids":[` + fmtInt(host.ID) + `],"disabled_tools":["memory"]}`
 	decisionRequest := httptest.NewRequest(http.MethodPost, "/api/v1/oauth/authorization", strings.NewReader(decisionBody))
 	decisionResponse := httptest.NewRecorder()
 	server.AuthorizationDecision(decisionResponse, decisionRequest)
@@ -128,6 +128,9 @@ func TestOAuthAuthorizationCodeFlowPreservesPermissionsAndAudience(t *testing.T)
 	if stored.Source != "oauth" || !stored.ManageHosts || stored.AllHosts || len(hosts) != 1 || hosts[0].Name != "build" {
 		t.Fatalf("OAuth 权限未保留: token=%#v hosts=%#v", stored, hosts)
 	}
+	if len(stored.DisabledTools) != 1 || stored.DisabledTools[0] != "memory" {
+		t.Fatalf("OAuth 签发后 disabled_tools 未保留: %#v", stored.DisabledTools)
+	}
 	if _, _, err = st.FindTokenForResource(ctx, store.TokenHash(tokenBody.AccessToken), "http://localhost:8866/other"); err == nil {
 		t.Fatal("OAuth 令牌被错误资源接受")
 	}
@@ -154,6 +157,13 @@ func TestOAuthAuthorizationCodeFlowPreservesPermissionsAndAudience(t *testing.T)
 	}
 	if refreshed.AccessToken == "" || refreshed.RefreshToken == "" || refreshed.RefreshToken == tokenBody.RefreshToken {
 		t.Fatalf("刷新令牌未轮换: %#v", refreshed)
+	}
+	refreshedStored, _, err := st.FindTokenForResource(ctx, store.TokenHash(refreshed.AccessToken), "http://localhost:8866/mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refreshedStored.DisabledTools) != 1 || refreshedStored.DisabledTools[0] != "memory" {
+		t.Fatalf("OAuth 刷新后 disabled_tools 未保留: %#v", refreshedStored.DisabledTools)
 	}
 	replayRequest := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(refreshForm.Encode()))
 	replayRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")

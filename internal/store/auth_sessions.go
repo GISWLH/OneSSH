@@ -304,8 +304,9 @@ func decodeDisabledTools(raw string) ([]string, error) {
 	if err := json.Unmarshal([]byte(raw), &names); err != nil {
 		return nil, err
 	}
+	// JSON null 解成 nil：不能当成空 denylist fail-open，否则 MCP 会放开全部工具组。
 	if names == nil {
-		names = []string{}
+		return nil, errors.New("disabled_tools_json must be a JSON array")
 	}
 	return names, nil
 }
