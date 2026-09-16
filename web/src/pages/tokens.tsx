@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, type UseFormReturn } from 'react-hook-form'
 import { Check, Copy, PencilSimple, Plus, Ticket, Trash, Warning, WarningCircle } from '@phosphor-icons/react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { toast } from 'sonner'
 import { useCreateToken, useDeleteToken, useDeleteTokens, useHosts, useTokens, useToolGroups, useUpdateToken } from '@/api/queries'
-import type { Host, Token, TokenPayload } from '@/api/types'
+import type { Host, Token, TokenPayload, ToolGroup } from '@/api/types'
 import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -94,6 +94,139 @@ function TokenPermissions({ token, hosts }: { token: Token; hosts: Host[] | unde
   )
 }
 
+type TokenFormFieldsProps = {
+  form: UseFormReturn<TokenFormValues>
+  idPrefix: string
+  hosts: Host[] | undefined
+  toolGroups: ToolGroup[] | undefined
+}
+
+/** 创建与编辑共用权限字段，避免校验、权限提示和工具组选项发生偏差。 */
+function TokenFormFields({ form, idPrefix, hosts, toolGroups }: TokenFormFieldsProps) {
+  const { control, register, watch, formState: { errors } } = form
+  const allHosts = watch('all_hosts')
+  const manageHosts = watch('manage_hosts')
+  const reduce = useReducedMotion()
+
+  return (
+    <>
+      {/* placeholder 已经在示范命名，再加 hint 只是同一句话说两遍 */}
+      <Field label="名称" required error={errors.name?.message}>
+        {(id) => (
+          <Input
+            id={id}
+            autoFocus
+            placeholder="ci-runner"
+            invalid={Boolean(errors.name)}
+            {...register('name', { required: '请输入名称' })}
+          />
+        )}
+      </Field>
+
+      {/* 开关自带语义，横排成一条设置行比「标签在上、开关在下」更紧凑也更好点 */}
+      <div className="flex items-center justify-between gap-4 rounded-[8px] border border-border bg-surface-2 px-3 py-2.5">
+        <div className="min-w-0">
+          <Label htmlFor={`${idPrefix}-all-hosts`}>允许全部主机</Label>
+          <p className="mt-0.5 text-[12px] text-muted">关闭后只授权选定的主机</p>
+        </div>
+        <Controller
+          name="all_hosts"
+          control={control}
+          render={({ field }) => (
+            <Switch
+              id={`${idPrefix}-all-hosts`}
+              checked={field.value}
+              onCheckedChange={field.onChange}
+            />
+          )}
+        />
+      </div>
+
+      <div className="flex items-center justify-between gap-4 rounded-[8px] border border-border bg-surface-2 px-3 py-2.5">
+        <div className="min-w-0">
+          <Label htmlFor={`${idPrefix}-manage-hosts`}>允许管理主机</Label>
+          <p className="mt-0.5 text-[12px] text-muted">
+            可新增、编辑、测试和删除全部 SSH 主机；不会扩大命令执行范围
+          </p>
+        </div>
+        <Controller
+          name="manage_hosts"
+          control={control}
+          render={({ field }) => (
+            <Switch
+              id={`${idPrefix}-manage-hosts`}
+              checked={field.value}
+              onCheckedChange={field.onChange}
+            />
+          )}
+        />
+      </div>
+
+      {/* 主机选择器是条件字段，直接挂载会让弹层高度硬跳 86px；连 margin 一起动画消掉跳动 */}
+      <AnimatePresence initial={false}>
+        {!allHosts && (
+          <motion.div
+            key="host-scope"
+            className="overflow-hidden"
+            initial={reduce ? false : { height: 0, opacity: 0, marginTop: 0 }}
+            animate={reduce ? {} : { height: 'auto', opacity: 1, marginTop: 16 }}
+            exit={reduce ? {} : { height: 0, opacity: 0, marginTop: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <Field label="允许主机" required={!manageHosts} error={errors.host_ids?.message}>
+              {(id) => (
+                <Controller
+                  name="host_ids"
+                  control={control}
+                  rules={{
+                    validate: (value) => manageHosts || value.length > 0 || '请至少选择一台主机',
+                  }}
+                  render={({ field }) => (
+                    <MultiSelect
+                      id={id}
+                      value={field.value}
+                      onChange={field.onChange}
+                      invalid={Boolean(errors.host_ids)}
+                      options={(hosts ?? []).map((host) => ({
+                        value: host.id,
+                        label: host.name,
+                      }))}
+                    />
+                  )}
+                />
+              )}
+            </Field>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <Field
+        label="禁用 MCP 工具组"
+        hint="与 ONESSH_DISABLED_TOOLS 同一套分组；对该令牌隐藏 tools/list 并拒绝 tools/call"
+      >
+        {(id) => (
+          <Controller
+            name="disabled_tools"
+            control={control}
+            render={({ field }) => (
+              <MultiSelect
+                id={id}
+                value={field.value}
+                onChange={field.onChange}
+                placeholder="未额外禁用（仍受实例配置限制）"
+                options={(toolGroups ?? []).map((group) => ({
+                  value: group.name,
+                  label: group.name,
+                }))}
+              />
+            )}
+          />
+        )}
+      </Field>
+    </>
+  )
+}
+
 export function TokensPage() {
   const tokens = useTokens()
   const hosts = useHosts()
@@ -110,17 +243,8 @@ export function TokensPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [batchDeleting, setBatchDeleting] = useState(false)
   const plainRef = useRef<HTMLElement>(null)
-  const reduce = useReducedMotion()
-  const {
-    control,
-    handleSubmit,
-    register,
-    reset,
-    watch,
-    formState: { errors },
-  } = useForm<TokenFormValues>({ defaultValues })
-  const allHosts = watch('all_hosts')
-  const manageHosts = watch('manage_hosts')
+  const form = useForm<TokenFormValues>({ defaultValues })
+  const { handleSubmit, reset } = form
 
   const openCreate = () => {
     reset(defaultValues)
@@ -376,120 +500,12 @@ export function TokensPage() {
         }
       >
         <form id="create-token-form" className="space-y-4" onSubmit={handleSubmit(create)}>
-          {/* placeholder 已经在示范命名，再加 hint 只是同一句话说两遍 */}
-          <Field label="名称" required error={errors.name?.message}>
-            {(id) => (
-              <Input
-                id={id}
-                autoFocus
-                placeholder="ci-runner"
-                invalid={Boolean(errors.name)}
-                {...register('name', { required: '请输入名称' })}
-              />
-            )}
-          </Field>
-
-          {/* 开关自带语义，横排成一条设置行比「标签在上、开关在下」更紧凑也更好点 */}
-          <div className="flex items-center justify-between gap-4 rounded-[8px] border border-border bg-surface-2 px-3 py-2.5">
-            <div className="min-w-0">
-              <Label htmlFor="token-all-hosts">允许全部主机</Label>
-              <p className="mt-0.5 text-[12px] text-muted">关闭后只授权选定的主机</p>
-            </div>
-            <Controller
-              name="all_hosts"
-              control={control}
-              render={({ field }) => (
-                <Switch
-                  id="token-all-hosts"
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                />
-              )}
-            />
-          </div>
-
-          <div className="flex items-center justify-between gap-4 rounded-[8px] border border-border bg-surface-2 px-3 py-2.5">
-            <div className="min-w-0">
-              <Label htmlFor="token-manage-hosts">允许管理主机</Label>
-              <p className="mt-0.5 text-[12px] text-muted">
-                可新增、编辑、测试和删除全部 SSH 主机；不会扩大命令执行范围
-              </p>
-            </div>
-            <Controller
-              name="manage_hosts"
-              control={control}
-              render={({ field }) => (
-                <Switch
-                  id="token-manage-hosts"
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                />
-              )}
-            />
-          </div>
-
-          {/* 主机选择器是条件字段，直接挂载会让弹层高度硬跳 86px；连 margin 一起动画消掉跳动 */}
-          <AnimatePresence initial={false}>
-            {!allHosts && (
-              <motion.div
-                key="host-scope"
-                className="overflow-hidden"
-                initial={reduce ? false : { height: 0, opacity: 0, marginTop: 0 }}
-                animate={reduce ? {} : { height: 'auto', opacity: 1, marginTop: 16 }}
-                exit={reduce ? {} : { height: 0, opacity: 0, marginTop: 0 }}
-                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              >
-                <Field label="允许主机" required={!manageHosts} error={errors.host_ids?.message}>
-                  {(id) => (
-                    <Controller
-                      name="host_ids"
-                      control={control}
-                      rules={{
-                        validate: (value) => manageHosts || value.length > 0 || '请至少选择一台主机',
-                      }}
-                      render={({ field }) => (
-                        <MultiSelect
-                          id={id}
-                          value={field.value}
-                          onChange={field.onChange}
-                          invalid={Boolean(errors.host_ids)}
-                          options={(hosts.data ?? []).map((host) => ({
-                            value: host.id,
-                            label: host.name,
-                          }))}
-                        />
-                      )}
-                    />
-                  )}
-                </Field>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <Field
-            label="禁用 MCP 工具组"
-            hint="与 ONESSH_DISABLED_TOOLS 同一套分组；对该令牌隐藏 tools/list 并拒绝 tools/call"
-          >
-            {(id) => (
-              <Controller
-                name="disabled_tools"
-                control={control}
-                render={({ field }) => (
-                  <MultiSelect
-                    id={id}
-                    value={field.value}
-                    onChange={field.onChange}
-                    placeholder="不禁用（全部可用）"
-                    options={(toolGroups.data ?? []).map((group) => ({
-                      value: group.name,
-                      label: group.name,
-                    }))}
-                  />
-                )}
-              />
-            )}
-          </Field>
-
+          <TokenFormFields
+            form={form}
+            idPrefix="create-token"
+            hosts={hosts.data}
+            toolGroups={toolGroups.data}
+          />
         </form>
       </Dialog>
 
@@ -520,104 +536,12 @@ export function TokensPage() {
         }
       >
         <form id="edit-token-form" className="space-y-4" onSubmit={handleSubmit(saveEdit)}>
-          <Field label="名称" required error={errors.name?.message}>
-            {(id) => (
-              <Input
-                id={id}
-                autoFocus
-                placeholder="ci-runner"
-                invalid={Boolean(errors.name)}
-                {...register('name', { required: '请输入名称' })}
-              />
-            )}
-          </Field>
-          <div className="flex items-center justify-between gap-4 rounded-[8px] border border-border bg-surface-2 px-3 py-2.5">
-            <div className="min-w-0">
-              <Label htmlFor="edit-token-all-hosts">允许全部主机</Label>
-              <p className="mt-0.5 text-[12px] text-muted">关闭后只授权选定的主机</p>
-            </div>
-            <Controller
-              name="all_hosts"
-              control={control}
-              render={({ field }) => (
-                <Switch id="edit-token-all-hosts" checked={field.value} onCheckedChange={field.onChange} />
-              )}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-4 rounded-[8px] border border-border bg-surface-2 px-3 py-2.5">
-            <div className="min-w-0">
-              <Label htmlFor="edit-token-manage-hosts">允许管理主机</Label>
-              <p className="mt-0.5 text-[12px] text-muted">可新增、编辑、测试和删除全部 SSH 主机</p>
-            </div>
-            <Controller
-              name="manage_hosts"
-              control={control}
-              render={({ field }) => (
-                <Switch id="edit-token-manage-hosts" checked={field.value} onCheckedChange={field.onChange} />
-              )}
-            />
-          </div>
-          <AnimatePresence initial={false}>
-            {!allHosts && (
-              <motion.div
-                key="edit-host-scope"
-                className="overflow-hidden"
-                initial={reduce ? false : { height: 0, opacity: 0, marginTop: 0 }}
-                animate={reduce ? {} : { height: 'auto', opacity: 1, marginTop: 16 }}
-                exit={reduce ? {} : { height: 0, opacity: 0, marginTop: 0 }}
-                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              >
-                <Field label="允许主机" required={!manageHosts} error={errors.host_ids?.message}>
-                  {(id) => (
-                    <Controller
-                      name="host_ids"
-                      control={control}
-                      rules={{
-                        validate: (value) => manageHosts || value.length > 0 || '请至少选择一台主机',
-                      }}
-                      render={({ field }) => (
-                        <MultiSelect
-                          id={id}
-                          value={field.value}
-                          onChange={field.onChange}
-                          invalid={Boolean(errors.host_ids)}
-                          options={(hosts.data ?? []).map((host) => ({
-                            value: host.id,
-                            label: host.name,
-                          }))}
-                        />
-                      )}
-                    />
-                  )}
-                </Field>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <Field
-            label="禁用 MCP 工具组"
-            hint="与 ONESSH_DISABLED_TOOLS 同一套分组；对该令牌隐藏 tools/list 并拒绝 tools/call"
-          >
-            {(id) => (
-              <Controller
-                name="disabled_tools"
-                control={control}
-                render={({ field }) => (
-                  <MultiSelect
-                    id={id}
-                    value={field.value}
-                    onChange={field.onChange}
-                    placeholder="不禁用（全部可用）"
-                    options={(toolGroups.data ?? []).map((group) => ({
-                      value: group.name,
-                      label: group.name,
-                    }))}
-                  />
-                )}
-              />
-            )}
-          </Field>
-
+          <TokenFormFields
+            form={form}
+            idPrefix="edit-token"
+            hosts={hosts.data}
+            toolGroups={toolGroups.data}
+          />
         </form>
       </Dialog>
 

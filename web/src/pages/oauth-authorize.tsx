@@ -509,7 +509,7 @@ export function OAuthAuthorizePage() {
                               id={id}
                               value={field.value}
                               onChange={field.onChange}
-                              placeholder="不禁用（全部可用）"
+                              placeholder="未额外禁用（仍受实例配置限制）"
                               options={(info.tool_groups ?? []).map((group) => ({
                                 value: group.name,
                                 label: group.name,
