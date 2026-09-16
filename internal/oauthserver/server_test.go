@@ -594,7 +594,6 @@ func TestOAuthAuthorizationDecisionRejectsUnknownDisabledTools(t *testing.T) {
 	}
 }
 
-
 func quoted(value string) string {
 	raw, _ := json.Marshal(value)
 	return string(raw)
