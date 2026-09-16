@@ -8,6 +8,8 @@ package toolgroups
 
 import (
 	"fmt"
+	"iter"
+	"slices"
 	"strings"
 )
 
@@ -83,22 +85,7 @@ func (d Disabled) HidesTool(name string) bool {
 // Parse 解析逗号分隔的分组名。未知分组直接报错而不是静默忽略：拼错一个名字就意味着
 // 运维以为已经关闭的工具仍然暴露在 tools/list 里。
 func Parse(spec string) (Disabled, error) {
-	var disabled Disabled
-	for _, field := range strings.Split(spec, ",") {
-		name := strings.ToLower(strings.TrimSpace(field))
-		if name == "" {
-			continue
-		}
-		group, ok := lookup(name)
-		if !ok {
-			return nil, fmt.Errorf("未知工具组 %q；可选值：%s", name, strings.Join(names(), "、"))
-		}
-		if disabled == nil {
-			disabled = Disabled{}
-		}
-		disabled[group] = true
-	}
-	return disabled, nil
+	return parseGroups(strings.SplitSeq(spec, ","))
 }
 
 func lookup(name string) (Group, bool) {
@@ -121,8 +108,12 @@ func names() []string {
 // ParseList 解析分组名列表（令牌 / OAuth 同意页传入的 JSON 数组）。规则与 Parse 相同：
 // 未知分组名直接报错，避免静默忽略后以为已经关掉的工具仍暴露给该令牌。
 func ParseList(groupNames []string) (Disabled, error) {
+	return parseGroups(slices.Values(groupNames))
+}
+
+func parseGroups(groupNames iter.Seq[string]) (Disabled, error) {
 	var disabled Disabled
-	for _, field := range groupNames {
+	for field := range groupNames {
 		name := strings.ToLower(strings.TrimSpace(field))
 		if name == "" {
 			continue
