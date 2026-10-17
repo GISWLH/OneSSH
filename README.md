@@ -1,3 +1,7 @@
+<!-- readme-visual-refresh:banner -->
+![OneSSH — hand-drawn project banner](assets/readme/banner.svg)
+<!-- /readme-visual-refresh:banner -->
+
 <div align="center">
 
 <img src="web/public/logo.svg" alt="OneSSH" width="88" height="88" />
@@ -454,3 +458,7 @@ docker pull ghcr.io/lynricsy/onessh:latest
 ## 许可证
 
 [GNU General Public License v3.0](LICENSE)。你可以自由使用、修改和分发本项目；分发修改版或基于它的衍生作品时，必须同样以 GPL-3.0 提供完整对应源码。
+
+<!-- readme-visual-refresh:artwork-source -->
+[Editable banner artwork · Excalidraw](assets/readme/banner.excalidraw)
+<!-- /readme-visual-refresh:artwork-source -->
