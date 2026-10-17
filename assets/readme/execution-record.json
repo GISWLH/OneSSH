@@ -1,0 +1,16 @@
+{
+  "repo": "GISWLH/OneSSH",
+  "environment": "EHPC PBS",
+  "execution_scope": "Actual login screen of the upstream OneSSH v0.1.19 release running as an isolated empty instance on EHPC with Firefox 128.14 ESR. No SSH hosts were configured or connected. This is release UI verification, not a source rebuild or SSH-session test.",
+  "exit_code": 0,
+  "output": {
+    "path": "assets/readme/execution-result.png",
+    "sha256": "5589e067681d70f3a5b9e92c196a131ae662887b31e5fc0df911083458301f04"
+  },
+  "browser": "Firefox 128.14.0 ESR official portable release",
+  "source_modified": false,
+  "limitations": [
+    "Upstream release UI, not a source rebuild",
+    "Login page only; SSH/session functionality not exercised"
+  ]
+}

@@ -462,3 +462,14 @@ docker pull ghcr.io/lynricsy/onessh:latest
 <!-- readme-visual-refresh:artwork-source -->
 [Editable banner artwork · Excalidraw](assets/readme/banner.excalidraw)
 <!-- /readme-visual-refresh:artwork-source -->
+
+
+<!-- readme-visual-refresh:execution -->
+## Demonstration captured on EHPC · 17 October 2026
+
+![Actual login screen of the upstream OneSSH v0.1.19 release running as an isolated empty instance on EHPC with Firefox 128.14 ESR. No SSH hosts were configured or connected. This is release UI verification, not a source rebuild or SSH-session test.](assets/readme/execution-result.png)
+
+Actual login screen of the upstream OneSSH v0.1.19 release running as an isolated empty instance on EHPC with Firefox 128.14 ESR. No SSH hosts were configured or connected. This is release UI verification, not a source rebuild or SSH-session test.
+
+[Execution record and checksums](assets/readme/execution-record.json).
+<!-- /readme-visual-refresh:execution -->
